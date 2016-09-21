@@ -65,6 +65,10 @@ defmodule ExAws.Request do
     end
   end
 
+  def client_error(%{status_code: status}, json_codec) do
+    {:error, {"ClientException", "The object you were requesting was either not found or your request was invalid"}}
+  end
+
   def handle_aws_error("ProvisionedThroughputExceededException" = type, message) do
     {:retry, {type, message}}
   end
