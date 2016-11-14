@@ -65,7 +65,7 @@ defmodule ExAws.SQS do
       |> format_permissions
       |> Map.put("Label", label)
 
-    request(queue, "AddPermission", params)
+    request(queue, :add_permission, params)
   end
 
   @doc """
@@ -74,7 +74,7 @@ defmodule ExAws.SQS do
   """
   @spec change_message_visibility(queue_url :: binary, receipt_handle :: binary, visibility_timeout :: visibility_timeout) :: ExAws.Operation.Query.t
   def change_message_visibility(queue, receipt_handle, visibility_timeout) do
-    request(queue, "ChangeMessageVisibility", %{"ReceiptHandle" => receipt_handle, "VisibilityTimeout" => visibility_timeout})
+    request(queue, :change_message_visibility, %{"ReceiptHandle" => receipt_handle, "VisibilityTimeout" => visibility_timeout})
   end
 
   @doc """
@@ -94,7 +94,7 @@ defmodule ExAws.SQS do
         Map.merge(params, format_batch_visibility_change(message, index))
       end)
 
-    request(queue, "ChangeMessageVisibilityBatch", params)
+    request(queue, :change_message_visibility_batch, params)
   end
 
   @doc "Create queue"
@@ -106,13 +106,13 @@ defmodule ExAws.SQS do
       |> build_attrs
       |> Map.put("QueueName", queue)
 
-    request("", "CreateQueue", params)
+    request("", :create_queue, params)
   end
 
   @doc "Delete a message from a SQS Queue"
   @spec delete_message(queue_url :: binary, receipt_handle :: binary) :: ExAws.Operation.Query.t
   def delete_message(queue, receipt_handle) do
-    request(queue, "DeleteMessage", %{"ReceiptHandle" => receipt_handle})
+    request(queue, :delete_message, %{"ReceiptHandle" => receipt_handle})
   end
 
   @doc "Deletes a list of messages from a SQS Queue in a single request"
@@ -129,13 +129,13 @@ defmodule ExAws.SQS do
         Map.merge(params, format_batch_deletion(message, index))
       end)
 
-    request(queue, "DeleteMessageBatch", params)
+    request(queue, :delete_message_batch, params)
   end
 
   @doc "Delete a queue"
   @spec delete_queue(queue_url :: binary) :: ExAws.Operation.Query.t
   def delete_queue(queue) do
-    request(queue, "DeleteQueue", %{})
+    request(queue, :delete_queue, %{})
   end
 
   @doc "Gets attributes of a SQS Queue"
@@ -146,7 +146,7 @@ defmodule ExAws.SQS do
     attributes
     |> format_queue_attributes
 
-    request(queue, "GetQueueAttributes", params)
+    request(queue, :get_queue_attributes, params)
   end
 
   @doc "Get queue URL"
@@ -156,30 +156,34 @@ defmodule ExAws.SQS do
     params = opts
       |> format_regular_opts
       |> Map.put("QueueName", queue_name)
-    request("", "GetQueueUrl", params)
+    request("", :get_queue_url, params)
   end
 
   @doc "Retrieves the dead letter source queues for a given SQS Queue"
   @spec list_dead_letter_source_queues(queue_url :: binary) :: ExAws.Operation.Query.t
   def list_dead_letter_source_queues(queue) do
-    request(queue, "ListDeadLetterSourceQueues", %{})
+    request(queue, :list_dead_letter_source_queues, %{})
   end
 
   @doc "Retrieves a list of all the SQS Queues"
   @spec list_queues() :: ExAws.Operation.Query.t
   @spec list_queues(opts :: [queue_name_prefix: binary]) :: ExAws.Operation.Query.t
   def list_queues(opts \\ []) do
-    request("", "ListQueues", Enum.into(opts, %{}))
+    params = opts
+    |> format_regular_opts
+
+    request("", :list_queues, params)
   end
 
   @doc "Purge all messages in a SQS Queue"
   @spec purge_queue(queue_url :: binary) :: ExAws.Operation.Query.t
   def purge_queue(queue) do
-    request(queue, "PurgeQueue", %{})
+    request(queue, :purge_queue, %{})
   end
 
   @type receive_message_opts :: [
     {:attribute_names, :all | [sqs_message_attribute_name, ...]} |
+    {:message_attribute_names, :all | [String.Chars.t, ...]} |
     {:max_number_of_messages, 1..10} |
     {:visibility_timeout, 0..43200} |
     {:wait_time_seconds, 0..20}
@@ -192,18 +196,21 @@ defmodule ExAws.SQS do
     {attrs, opts} = opts
     |> Keyword.pop(:attribute_names, [])
 
-    params =
-      attrs
-      |> format_queue_attributes
-      |> Map.merge(format_regular_opts(opts))
+    {message_attrs, opts} = opts
+    |> Keyword.pop(:message_attribute_names, [])
 
-    request(queue, "ReceiveMessage", params)
+    params = attrs
+    |> format_queue_attributes
+    |> Map.merge(format_message_attributes(message_attrs))
+    |> Map.merge(format_regular_opts(opts))
+
+    request(queue, :receive_message, params)
   end
 
   @doc "Removes permission with the given label from the Queue"
   @spec remove_permission(queue_name :: binary, label :: binary) :: ExAws.Operation.Query.t
   def remove_permission(queue, label) do
-    request(queue, "RemovePermission", %{"Label" => label})
+    request(queue, :remove_permission, %{"Label" => label})
   end
 
   @type sqs_message_opts :: [
@@ -225,7 +232,7 @@ defmodule ExAws.SQS do
     |> Map.merge(attrs)
     |> Map.put("MessageBody", message)
 
-    request(queue, "SendMessage", params)
+    request(queue, :send_message, params)
   end
 
   @type sqs_batch_message :: binary | [
@@ -245,7 +252,7 @@ defmodule ExAws.SQS do
         Map.merge(params, format_batch_message(message, index))
       end)
 
-    request(queue, "SendMessageBatch", params)
+    request(queue, :send_message_batch, params)
   end
 
   @doc "Set attributes of a SQS Queue"
@@ -255,14 +262,18 @@ defmodule ExAws.SQS do
       attributes
       |> build_attrs
 
-    request(queue, "SetQueueAttributes", params)
+    request(queue, :set_queue_attributes, params)
   end
 
   defp request(queue, action, params) do
+    action_string = action |> Atom.to_string |> Macro.camelize
+
     %ExAws.Operation.Query{
       path: "/" <> queue,
-      params: params |> Map.put("Action", action),
-      service: :sqs
+      params: params |> Map.put("Action", action_string),
+      service: :sqs,
+      action: action,
+      parser: &ExAws.SQS.Parsers.parse/2
     }
   end
 
@@ -319,6 +330,21 @@ defmodule ExAws.SQS do
     key = "AttributeName.#{index + 1}"
 
     Map.put(%{}, key, format_param_key(attribute))
+  end
+
+  defp format_message_attribute({attribute, index}) do
+    %{"MessageAttributeName.#{index + 1}" => to_string(attribute)}
+  end
+
+  defp format_message_attributes(:all) do
+    %{"MessageAttributeNames" => "All"}
+  end
+
+  defp format_message_attributes(attributes) do
+    attributes
+    |> Enum.with_index
+    |> Enum.map(&format_message_attribute/1)
+    |> Enum.reduce(%{}, &Map.merge(&1, &2))
   end
 
   defp format_batch_message(message, index) do

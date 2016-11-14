@@ -1,5 +1,4 @@
 defmodule ExAws.Config.Defaults do
-
   @moduledoc """
   Defaults for each service
   """
@@ -9,12 +8,23 @@ defmodule ExAws.Config.Defaults do
     secret_access_key: [{:system, "AWS_SECRET_ACCESS_KEY"}, :instance_role],
     http_client: ExAws.Request.Hackney,
     json_codec: Poison,
+    retries: [
+      max_attempts: 10,
+      base_backoff_in_ms: 10,
+      max_backoff_in_ms: 10_000
+    ],
   }
 
   @defaults %{
     kinesis: %{
       scheme: "https://",
       host: {"$region", "kinesis.$region.amazonaws.com"},
+      region: "us-east-1",
+      port: 80
+    },
+    firehose: %{
+      scheme: "https://",
+      host: {"$region", "firehose.$region.amazonaws.com"},
       region: "us-east-1",
       port: 80
     },

@@ -1,8 +1,5 @@
 defmodule ExAws.Request do
   require Logger
-  @max_attempts 10
-  @base_backoff_in_ms 10
-  @max_backoff_in_ms 10_000
 
   @moduledoc """
   Makes requests to AWS.
@@ -34,25 +31,25 @@ defmodule ExAws.Request do
       Logger.debug("Request BODY: #{inspect req_body}")
     end
 
-    case config[:http_client].request(method, url, req_body, full_headers) do
+    case config[:http_client].request(method, url, req_body, full_headers, Map.get(config, :http_opts, [])) do
       {:ok, response = %{status_code: status}} when status in 200..299 ->
         {:ok, response}
       {:ok, %{status_code: status} = resp} when status in 400..499 ->
         case client_error(resp, config[:json_codec]) do
           {:retry, reason} ->
-            request_and_retry(method, url, service, config, headers, req_body, attempt_again?(attempt, reason))
+            request_and_retry(method, url, service, config, headers, req_body, attempt_again?(attempt, reason, config))
           {:error, reason} -> {:error, reason}
         end
       {:ok, %{status_code: status, body: body}} when status >= 500 ->
         reason = {:http_error, status, body}
-        request_and_retry(method, url, service, config, headers, req_body, attempt_again?(attempt, reason))
+        request_and_retry(method, url, service, config, headers, req_body, attempt_again?(attempt, reason, config))
       {:error, %{reason: reason}} ->
         Logger.warn("ExAws: HTTP ERROR: #{inspect reason}")
-        request_and_retry(method, url, service, config, headers, req_body, attempt_again?(attempt, reason))
+        request_and_retry(method, url, service, config, headers, req_body, attempt_again?(attempt, reason, config))
     end
   end
 
-  def client_error(%{status_code: status, body: body}, json_codec) do
+  def client_error(%{status_code: status, body: body} = error, json_codec) do
     case json_codec.decode(body) do
       {:ok, %{"__type" => error_type, "message" => message} = err} ->
         error_type
@@ -61,8 +58,11 @@ defmodule ExAws.Request do
           [_, type] -> handle_aws_error(type, message)
           _         -> {:error, {:http_error, status, err}}
         end
-      _ -> {:error, {:http_error, status, body}}
+      _ -> {:error, {:http_error, status, error}}
     end
+  end
+  def client_error(%{status_code: status} = error, _) do
+    {:error, {:http_error, status, error}}
   end
 
   def client_error(%{status_code: status}, json_codec) do
@@ -81,18 +81,18 @@ defmodule ExAws.Request do
     {:error, {type, message}}
   end
 
-  def attempt_again?(attempt, reason) when attempt >= @max_attempts do
-    {:error, reason}
+  def attempt_again?(attempt, reason, config) do
+    if attempt >= config[:retries][:max_attempts] do
+      {:error, reason}
+    else
+      attempt |> backoff(config)
+      {:attempt, attempt + 1}
+    end
   end
 
-  def attempt_again?(attempt, _) do
-    attempt |> backoff
-    {:attempt, attempt + 1}
-  end
-
-  def backoff(attempt) do
-    (@base_backoff_in_ms * :math.pow(2, attempt))
-    |> min(@max_backoff_in_ms)
+  def backoff(attempt, config) do
+    (config[:retries][:base_backoff_in_ms] * :math.pow(2, attempt))
+    |> min(config[:retries][:max_backoff_in_ms])
     |> trunc
     |> :rand.uniform
     |> :timer.sleep

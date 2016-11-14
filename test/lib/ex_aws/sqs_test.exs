@@ -17,6 +17,13 @@ defmodule ExAws.SQSTest do
     assert expected == SQS.list_queues.params
   end
 
+  test "#list_queues with options" do
+    expected = %{"Action" => "ListQueues",
+                 "QueueNamePrefix" => "prefix"
+                }
+    assert expected == SQS.list_queues(queue_name_prefix: "prefix").params
+  end
+
   test "#get_queue_attributes" do
     expected = %{"Action" => "GetQueueAttributes", "AttributeName.1" => "All"}
     assert expected == SQS.get_queue_attributes("982071696186/test_queue").params
@@ -191,6 +198,43 @@ defmodule ExAws.SQSTest do
     assert expected == SQS.receive_message("982071696186/test_queue", attribute_names: [:sender_id, :approximate_receive_count],
                                                                       visibility_timeout: 1000,
                                                                       wait_timeout: 20).params
+  end
+
+  test "#receive_message can set the message attributes to all" do
+    expected = %{"Action" => "ReceiveMessage", "MessageAttributeNames" => "All"}
+
+    actual = SQS.receive_message("12345/test_queue", message_attribute_names: :all)
+    assert expected == actual.params
+  end
+
+  test "#receive_message can specify message attributes" do
+    expected = %{"Action" => "ReceiveMessage",
+                 "MessageAttributeName.1" => "FooAttr",
+                 "MessageAttributeName.2" => "BarAttr",
+                 "MessageAttributeName.3" => "BazAttr"}
+
+    actual = SQS.receive_message("12345/test_queue",
+                                 message_attribute_names: ["FooAttr", "BarAttr", "BazAttr"])
+    assert expected == actual.params
+  end
+
+  test "#receive_message can specify wildcard attributes" do
+    expected = %{"Action" => "ReceiveMessage",
+                 "MessageAttributeName.1" => "Foo.*"}
+    actual = SQS.receive_message("12345/test_queue",
+                                 message_attribute_names: ["Foo.*"])
+    assert expected == actual.params
+  end
+
+  test "receive_message can set atom message attributes" do
+    expected = %{"Action" => "ReceiveMessage",
+                 "MessageAttributeName.1" => "FooAttr",
+                 "MessageAttributeName.2" => "BarAttr",
+                 "MessageAttributeName.3" => "BazAttr"}
+
+    actual = SQS.receive_message("12345/test_queue",
+                                 message_attribute_names: [:"FooAttr", :"BarAttr", :"BazAttr"])
+    assert expected == actual.params
   end
 
   test "#delete_message" do
